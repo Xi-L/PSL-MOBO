@@ -19,18 +19,20 @@ from model import ParetoSetModel
 
 # -----------------------------------------------------------------------------
 # list of 15 test problems, which are defined in problem.py
-ins_list = ['f1','f2','f3','f4','f5','f6',
-            'vlmop1','vlmop2', 'vlmop3', 'dtlz2',
-            're21', 're23', 're33','re36','re37']
-
+# ins_list = ['f1','f2','f3','f4','f5','f6',
+#             'vlmop1','vlmop2', 'vlmop3', 'dtlz2',
+#             're21', 're23', 're33','re36','re37']
+ins_list = ['mdtlz1_4_1', 'mdtlz1_4_2', 'mdtlz1_4_3', 'mdtlz1_4_4',
+            'mdtlz2_4_1', 'mdtlz2_4_2', 'mdtlz2_4_3', 'mdtlz2_4_4',
+            'mdtlz3_4_1', 'mdtlz3_4_2', 'mdtlz3_4_3', 'mdtlz3_4_4']
 
 # number of independent runs
-n_run = 2 #20 
+n_run = 2 #20
 # number of initialized solutions
-n_init = 10 
+n_init = 10
 # number of iterations, and batch size per iteration
-n_iter = 20 
-n_sample = 5 
+n_iter = 20 - n_init
+n_sample = 1
 
 # PSL 
 # number of learning steps
@@ -44,7 +46,7 @@ n_candidate = 1000
 # number of optional local search
 n_local = 1
 # device
-device = 'cuda'
+device = 'cpu'
 # -----------------------------------------------------------------------------
 
 hv_list = {}
@@ -130,7 +132,8 @@ for test_ins in ins_list:
                
                 tch_idx = torch.argmax((1 / pref_vec) * (value - z), axis = 1)
                 tch_idx_mat = [torch.arange(len(tch_idx)),tch_idx]
-                tch_grad = (1 / pref_vec)[tch_idx_mat].view(n_pref_update,1) *  value_grad[tch_idx_mat] + 0.01 * torch.sum(value_grad, axis = 1) 
+                tch_grad = (1 / pref_vec)[tch_idx_mat].view(n_pref_update,1) * \
+                           value_grad[tch_idx_mat] + 0.01 * torch.sum(value_grad, axis = 1)
 
                 tch_grad = tch_grad / torch.norm(tch_grad, dim = 1)[:, None]
                 
@@ -144,8 +147,8 @@ for test_ins in ins_list:
             
             # sample n_candidate preferences
             alpha = np.ones(n_obj)
-            pref = np.random.dirichlet(alpha,n_candidate)
-            pref  = torch.tensor(pref).to(device).float() + 0.0001
+            pref = np.random.dirichlet(alpha, n_candidate)
+            pref = torch.tensor(pref).to(device).float() + 0.0001
     
             # generate correponding solutions, get the predicted mean/std
             X_candidate = psmodel(pref).to(torch.float64)
@@ -191,19 +194,19 @@ for test_ins in ins_list:
             best_subset_list = []
             Y_p = Y_nds 
             for b in range(n_sample):
-                hv = HV(ref_point=np.max(np.vstack([Y_p,Y_candidate]), axis = 0))
+                hv = HV(ref_point=np.max(np.vstack([Y_p, Y_candidate]), axis = 0))
                 best_hv_value = 0
                 best_subset = None
                 
                 for k in range(len(Y_candidate)):
                     Y_subset = Y_candidate[k]
-                    Y_comb = np.vstack([Y_p,Y_subset])
+                    Y_comb = np.vstack([Y_p, Y_subset])
                     hv_value_subset = hv(Y_comb)
                     if hv_value_subset > best_hv_value:
                         best_hv_value = hv_value_subset
                         best_subset = [k]
                         
-                Y_p = np.vstack([Y_p,Y_candidate[best_subset]])
+                Y_p = np.vstack([Y_p, Y_candidate[best_subset]])
                 best_subset_list.append(best_subset)  
                 
             best_subset_list = np.array(best_subset_list).T[0]
@@ -214,13 +217,14 @@ for test_ins in ins_list:
             Y_new = problem.evaluate(X_new)
             
             # update the set of evaluated solutions (X,Y)
-            X = np.vstack([X,X_new.detach().cpu().numpy()])
-            Y = np.vstack([Y,Y_new.detach().cpu().numpy()])
+            X = np.vstack([X, X_new.detach().cpu().numpy()])
+            Y = np.vstack([Y, Y_new.detach().cpu().numpy()])
             
             # check the current HV for evaluated solutions
             hv = HV(ref_point=np.array(ref_point))
             hv_value = hv(Y)
             hv_all_value[run_iter, i_iter] = hv_value
+            # in some certain iterations we generate IGD results or RMSE results
             
             
             print("hv", "{:.2e}".format(np.mean(hv_value)))
@@ -228,10 +232,8 @@ for test_ins in ins_list:
         
         # store the final performance
         hv_list[test_ins] = hv_all_value
-      
         
         print("************************************************************")
-
 
         with open('hv_psl_mobo.pickle', 'wb') as output_file:
             pickle.dump([hv_list], output_file)

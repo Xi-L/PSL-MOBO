@@ -1,6 +1,55 @@
 import torch
 import numpy as np
 
+DTLZ_pref_list = [62, 18, 12, 9, 9]
+
+
+def generate_norm(source_tensor: torch.tensor):
+    norm_tensor = torch.norm(source_tensor, dim=1).unsqueeze(1)
+    target_tensor = source_tensor / norm_tensor
+    return target_tensor
+
+
+def ref_points(obj_num: int, granularity: int, if_norm: bool = True):
+    """
+    Return the reference tuple for decomposition-based methods
+    like MOEA/D or NSGA-III
+    :param obj_num: the objective size
+    :param granularity: parameter H such that x_1 + x_2 +
+    ... + x_obj_num = H
+    :param if_norm: parameter boolean to indicate different modes
+    :return: A torch.tensor in shape of [C(obj_num+H-1, H)]
+    """
+
+    # We solve this problem by DP-like algorithm
+    dp_list = []
+    for i in range(granularity + 1):
+        dp_list.append(torch.tensor([i]).unsqueeze(0))
+
+    for i in range(2, obj_num + 1):
+        for j in range(granularity + 1):
+            if j == 0:
+                # prefix a zero simply
+                dp_list[j] = torch.cat((torch.zeros_like(dp_list[j])[:, 0].unsqueeze(1), dp_list[j]), dim=1)
+            else:
+                # first prefix a zero simply
+                dp_list[j] = torch.cat((torch.zeros_like(dp_list[j])[:, 0].unsqueeze(1), dp_list[j]), dim=1)
+                # then plus one based on dp_list[j-1]
+                dp_tmp = torch.zeros_like(dp_list[j-1])
+                dp_tmp[:, 0] = 1
+                dp_tmp = dp_tmp + dp_list[j-1]
+                dp_list[j] = torch.cat((dp_list[j], dp_tmp), dim=0)
+
+        # DEBUG:
+        # print("shape {} in iteration {}.".format(dp_list[-1].shape, i))
+
+    dp_list[-1] = dp_list[-1] / granularity
+
+    if if_norm:
+        return dp_list[-1]/torch.norm(dp_list[-1], dim=1).unsqueeze(1)
+    else:
+        return dp_list[-1]
+
 
 def get_problem(name, *args, **kwargs):
     name = name.lower()
@@ -21,12 +70,403 @@ def get_problem(name, *args, **kwargs):
         're33': RE33,
         're36': RE36,
         're37': RE37,
+        'mdtlz1_3_1': mDTLZ1(m=3, n=6, s=1.0, p=0.5, p_ind=0),
+        'mdtlz1_3_2': mDTLZ1(m=3, n=6, s=0.85, p=0.5, p_ind=1),
+        'mdtlz1_3_3': mDTLZ1(m=3, n=6, s=0.70, p=0.5, p_ind=2),
+        'mdtlz1_4_1': mDTLZ1(m=3, n=6, s=1.0, p=0.5, p_ind=0),
+        'mdtlz1_4_2': mDTLZ1(m=3, n=6, s=0.75, p=0.5, p_ind=1),
+        'mdtlz1_4_3': mDTLZ1(m=3, n=6, s=0.50, p=0.5, p_ind=2),
+        'mdtlz1_4_4': mDTLZ1(m=3, n=6, s=0.25, p=0.5, p_ind=3),
+        'mdtlz2_3_1': mDTLZ2(m=3, n=6, s=1.0, p=0.5, p_ind=0),
+        'mdtlz2_3_2': mDTLZ2(m=3, n=6, s=0.85, p=0.5, p_ind=1),
+        'mdtlz2_3_3': mDTLZ2(m=3, n=6, s=0.70, p=0.5, p_ind=2),
+        'mdtlz2_4_1': mDTLZ2(m=3, n=6, s=1.0, p=0.5, p_ind=0),
+        'mdtlz2_4_2': mDTLZ2(m=3, n=6, s=0.75, p=0.5, p_ind=1),
+        'mdtlz2_4_3': mDTLZ2(m=3, n=6, s=0.50, p=0.5, p_ind=2),
+        'mdtlz2_4_4': mDTLZ2(m=3, n=6, s=0.25, p=0.5, p_ind=3),
+        'mdtlz3_3_1': mDTLZ3(m=3, n=6, s=1.0, p=0.5, p_ind=0),
+        'mdtlz3_3_2': mDTLZ3(m=3, n=6, s=0.85, p=0.5, p_ind=1),
+        'mdtlz3_3_3': mDTLZ3(m=3, n=6, s=0.70, p=0.5, p_ind=2),
+        'mdtlz3_4_1': mDTLZ3(m=3, n=6, s=1.0, p=0.5, p_ind=0),
+        'mdtlz3_4_2': mDTLZ3(m=3, n=6, s=0.75, p=0.5, p_ind=1),
+        'mdtlz3_4_3': mDTLZ3(m=3, n=6, s=0.50, p=0.5, p_ind=2),
+        'mdtlz3_4_4': mDTLZ3(m=3, n=6, s=0.25, p=0.5, p_ind=3),
+
  }
 
     if name not in PROBLEM:
         raise Exception("Problem not found.")
     
-    return PROBLEM[name](*args, **kwargs)
+    return PROBLEM[name]
+
+
+class mDTLZ1:
+    def __init__(self, m: int, n: int, s: float, p: float, p_ind: int = 0):
+        assert n >= m
+        assert s <= 1
+        assert 0 <= p <= 1
+
+        m = int(m)
+        n = int(n)
+        self.m = m
+        self.n_obj = self.m
+        self.n = n
+        self.n_dim = self.n
+        self.s = s
+        self.p = p
+        self.k = n + 1 - m
+        self.p_ind = p_ind
+        self.current_name = "mDTLZ1"
+        self.nadir_point = [5, 5, 5]
+        if p_ind == 0:
+            self.p_vec = None
+
+        else:
+            self.p_vec = torch.arange(1, self.k+1) / (p_ind * self.k)
+
+    def pareto_set(self, sample_size: int):
+        """
+        :return: the pareto set answer in shape of [sample_size, n]
+        """
+
+        # In the dimension from 1 to m-1, the variables are generated uniformly
+        # In the dimension from m to n, the variables are obtained through equation
+        # x_j = 0.9 * b(x_I; B) * cos(E * pi * l(x_I) + ((n + 2) * j * pi)/(2 * n))
+
+        x_I = torch.rand(sample_size, self.m - 1)
+        # in the biased searching space we need to guarantee
+        # the biased transformation can obtain the uniform original counterpart
+        x_I = torch.pow(x_I, 1.0/self.s)
+
+        if self.p_ind == 0:
+            x_II = torch.ones(sample_size, self.k) * self.p
+        else:
+            x_II = torch.zeros(sample_size, self.k) + self.p_vec
+
+        ps_value = torch.cat((x_I, x_II), dim=1)
+        return ps_value
+
+    def g(self, x_II: torch.tensor):
+        """
+        :param x_II: the distance variable torch.tensor in shape of [sample_size, self.k]
+        :return: the g function results torch.tensor in shape of [sample_size, 1]
+        """
+        g_a, g_b, g_c = 1, 1, 2
+        if self.p_ind == 0:
+            g_result_1 = torch.pow(x_II - self.p, 2)
+            g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p))
+        else:
+            g_result_1 = torch.pow(x_II - self.p_vec, 2)
+            g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p_vec))
+
+        g_result_inter = torch.sum(g_result_1 - g_result_2, dim=1).unsqueeze(1)
+        g_result = g_a * (self.k + g_result_inter)
+        return g_result
+
+    def h(self, x_I: torch.tensor):
+        """
+        :param x_I: the position variable torch.tensor in shape of [sample_size, self.m - 1]
+        :return: the h function results torch.tensor in shape of [sample_size, self.m]
+        """
+        sample_size, _ = x_I.shape
+        x_new_I = torch.pow(x_I, self.s)
+        sample_prod = torch.cumprod(x_new_I, dim=1)
+        sample_minus = 1 - x_new_I
+        sample_ones = torch.ones(sample_size, 1)
+        sample_new_prod = torch.cat((sample_ones, sample_prod), dim=1)
+        sample_new_minus = torch.cat((sample_minus, sample_ones), dim=1)
+        sample_result = sample_new_prod * sample_new_minus
+        sample_ans = 0.5 * torch.flip(sample_result, [1])
+        return sample_ans
+
+    def evaluate(self, solution: torch.tensor = None,
+               if_ans: bool = True, sample_size: int = 5000):
+        """
+        evaluate the given vector x_I and x_II with sample size of "sample_size"
+        and the class attributes p/s
+        :param: if_ans, False returns Pareto front, True returns the evaluated solutions
+        :return:
+        """
+        if if_ans:
+            x_I = solution[:, :(self.m - 1)]
+            x_II = solution[:, (self.m - 1):]
+            g_result = self.g(x_II)
+            # print("Within the class dta, g_result is {} in shape of {}.".format(g_result, g_result.shape))
+            h_result = self.h(x_I)
+            # print("Within the class dta, h_result is {} in shape of {}.".format(h_result, h_result.shape))
+            # print("The g result here is {} with X {}.".format(g_result, x_II))
+            return (g_result + 1) * h_result
+        else:
+            ps_value = self.pareto_set(sample_size=sample_size)
+            x_I = ps_value[:, :(self.m - 1)]
+            x_II = ps_value[:, (self.m - 1):]
+            g_result = self.g(x_II)
+            h_result = self.h(x_I)
+            return (g_result + 1) * h_result
+
+    def obj(self, solution: torch.tensor):
+        """
+        :param solution: torch.tensor in shape of [size, self.n] in the space of [0, 1]^n
+        :return: normalized results in shape of [size, self.m] in the space of [0, 1]^m
+        """
+        res = self.evaluate(solution)
+        return res
+
+    def showcase_params(self):
+        print("********showcase_params**********")
+        print("Param m is {},\nParam n is {},\n"
+              "Param s is {},\nParam p is {},\nParam p_ind is {}\n".format(self.m, self.n,
+                                                                           self.s, self.p,
+                                                                           self.p_vec))
+        print("********ending_params**********")
+
+    def ref_and_obj(self):
+        assert 3 <= self.m <= 7
+        ref_vec = ref_points(self.m, DTLZ_pref_list[self.m - 3], if_norm=False)
+        # ref vectors sum to 1
+        obj_vec = 0.5 * ref_vec
+        return ref_vec, obj_vec
+
+
+class mDTLZ2:
+    def __init__(self, m: int, n: int, s: float, p: float, p_ind: int = 0):
+        assert n >= m
+        assert s <= 1
+        assert 0 <= p <= 1
+
+        m = int(m)
+        n = int(n)
+        self.m = m
+        self.n_obj = self.m
+        self.n = n
+        self.n_dim = self.n
+        self.s = s
+        self.p = p
+        self.k = n + 1 - m
+        self.p_ind = p_ind
+        self.current_name = "mDTLZ2"
+        self.nadir_point = [3.5, 3.5, 3.5]
+        if p_ind == 0:
+            self.p_vec = None
+        else:
+            self.p_vec = torch.arange(1, self.k+1) / (p_ind * self.k)
+
+    def pareto_set(self, sample_size: int):
+        """
+        :return: the pareto set answer in shape of [sample_size, n]
+        """
+
+        # In the dimension from 1 to m-1, the variables are generated uniformly
+        # In the dimension from m to n, the variables are obtained through equation
+        # x_j = 0.9 * b(x_I; B) * cos(E * pi * l(x_I) + ((n + 2) * j * pi)/(2 * n))
+
+        x_I = torch.rand(sample_size, self.m - 1)
+
+        if self.p_ind == 0:
+            x_II = torch.ones(sample_size, self.k) * self.p
+        else:
+            x_II = torch.zeros(sample_size, self.k) + self.p_vec
+
+        ps_value = torch.cat((x_I, x_II), dim=1)
+        return ps_value
+
+    def g(self, x_II: torch.tensor):
+        """
+        :param x_II: the distance variable torch.tensor in shape of [sample_size, self.k]
+        :return: the g function results torch.tensor in shape of [sample_size, 1]
+        """
+        if self.p_ind == 0:
+            g_result_1 = torch.pow(x_II - self.p, 2)
+            # g_result_2 = torch.cos(20 * torch.pi * (x_II - self.p))
+        else:
+            g_result_1 = torch.pow(x_II - self.p_vec, 2)
+            # g_result_2 = torch.cos(20 * torch.pi * (x_II - self.p_vec))
+        g_result_inter = torch.sum(g_result_1, dim=1).unsqueeze(1)
+        g_result = g_result_inter
+        return g_result
+
+    def h(self, x_I: torch.tensor):
+        """
+        :param x_I: the position variable torch.tensor in shape of [sample_size, self.m - 1]
+        :return: the h function results torch.tensor in shape of [sample_size, self.m]
+        """
+        sample_size, _ = x_I.shape
+        x_new_I = torch.pow(x_I, self.s) * torch.pi / 2
+        sample_prod = torch.cumprod(torch.cos(x_new_I), dim=1)
+        sample_minus = torch.sin(x_new_I)
+        sample_ones = torch.ones(sample_size, 1)
+        sample_new_prod = torch.cat((sample_ones, sample_prod), dim=1)
+        sample_new_minus = torch.cat((sample_minus, sample_ones), dim=1)
+        sample_result = sample_new_prod * sample_new_minus
+        sample_ans = torch.flip(sample_result, [1])
+        return sample_ans
+
+    def evaluate(self, solution: torch.tensor = None, if_ans: bool = True, sample_size: int = 5000):
+        """
+        evaluate the given vector x_I and x_II with sample size of "sample_size"
+        and the class attributes p/s
+        :param: if_ans, False returns Pareto front, True returns the evaluated solutions
+        :return:
+        """
+        if if_ans:
+            x_I = solution[:, :(self.m - 1)]
+            x_II = solution[:, (self.m - 1):]
+            g_result = self.g(x_II)
+            # print("Within the class dta, g_result is {} in shape of {}.".format(g_result, g_result.shape))
+            h_result = self.h(x_I)
+            # print("Within the class dta, h_result is {} in shape of {}.".format(h_result, h_result.shape))
+            return (g_result + 1) * h_result
+        else:
+            ps_value = self.pareto_set(sample_size=sample_size)
+            x_I = ps_value[:, :(self.m - 1)]
+            x_II = ps_value[:, (self.m - 1):]
+            g_result = self.g(x_II)
+            h_result = self.h(x_I)
+            return (g_result + 1) * h_result
+
+    def obj(self, solution: torch.tensor):
+        """
+        :param solution: torch.tensor in shape of [size, self.n] in the space of [0, 1]^n
+        :return: normalized results in shape of [size, self.m] in the space of [0, 1]^m
+        """
+        res = self.evaluate(solution)
+        return res
+
+    def showcase_params(self):
+        print("********showcase_params**********")
+        print("Param m is {},\nParam n is {},\n"
+              "Param s is {},\nParam p is {},\n".format(self.m, self.n,
+                                                        self.s, self.p_vec))
+        print("********ending_params**********")
+
+    def ref_and_obj(self):
+        assert 3 <= self.m <= 7
+        ref_vec = ref_points(self.m, DTLZ_pref_list[self.m - 3], if_norm=False)
+        # ref vectors sum to 1
+        obj_vec = generate_norm(ref_vec)
+        # obj vectors norm equals to 1
+        return ref_vec, obj_vec
+
+
+class mDTLZ3:
+    def __init__(self, m: int, n: int, s: float, p: float, p_ind: int = 0):
+        assert n >= m
+        assert s <= 1
+        assert 0 <= p <= 1
+
+        m = int(m)
+        n = int(n)
+        self.m = m
+        self.n_obj = self.m
+        self.n = n
+        self.n_dim = self.n
+        self.s = s
+        self.p = p
+        self.k = n + 1 - m
+        self.p_ind = p_ind
+        self.current_name = "mDTLZ3"
+        self.nadir_point = [3.5, 3.5, 3.5]
+        if p_ind == 0:
+            self.p_vec = None
+        else:
+            self.p_vec = torch.arange(1, self.k+1) / (p_ind * self.k)
+
+    def pareto_set(self, sample_size: int):
+        """
+        :return: the pareto set answer in shape of [sample_size, n]
+        """
+
+        # In the dimension from 1 to m-1, the variables are generated uniformly
+        # In the dimension from m to n, the variables are obtained through equation
+        # x_j = 0.9 * b(x_I; B) * cos(E * pi * l(x_I) + ((n + 2) * j * pi)/(2 * n))
+
+        x_I = torch.rand(sample_size, self.m - 1)
+
+        if self.p_ind == 0:
+            x_II = torch.ones(sample_size, self.k) * self.p
+        else:
+            x_II = torch.zeros(sample_size, self.k) + self.p_vec
+
+        ps_value = torch.cat((x_I, x_II), dim=1)
+        return ps_value
+
+    def g(self, x_II: torch.tensor):
+        """
+        :param x_II: the distance variable torch.tensor in shape of [sample_size, self.k]
+        :return: the g function results torch.tensor in shape of [sample_size, 1]
+        """
+        g_a, g_b, g_c = 0.1, 0.1, 2
+        if self.p_ind == 0:
+            g_result_1 = torch.pow(x_II - self.p, 2)
+            g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p))
+        else:
+            g_result_1 = torch.pow(x_II - self.p_vec, 2)
+            g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p_vec))
+        g_result_inter = torch.sum(g_result_1 - g_result_2, dim=1).unsqueeze(1)
+        g_result = g_a * (self.k + g_result_inter)
+        return g_result
+
+    def h(self, x_I: torch.tensor):
+        """
+        :param x_I: the position variable torch.tensor in shape of [sample_size, self.m - 1]
+        :return: the h function results torch.tensor in shape of [sample_size, self.m]
+        """
+        sample_size, _ = x_I.shape
+        x_new_I = torch.pow(x_I, self.s) * torch.pi / 2
+        sample_prod = torch.cumprod(torch.cos(x_new_I), dim=1)
+        sample_minus = torch.sin(x_new_I)
+        sample_ones = torch.ones(sample_size, 1)
+        sample_new_prod = torch.cat((sample_ones, sample_prod), dim=1)
+        sample_new_minus = torch.cat((sample_minus, sample_ones), dim=1)
+        sample_result = sample_new_prod * sample_new_minus
+        sample_ans = torch.flip(sample_result, [1])
+        return sample_ans
+
+    def evaluate(self, solution: torch.tensor = None, if_ans: bool = True, sample_size: int = 5000):
+        """
+        evaluate the given vector x_I and x_II with sample size of "sample_size"
+        and the class attributes p/s
+        :param: if_ans, True returns Pareto front, False returns the evaluated solutions
+        :return:
+        """
+        if if_ans:
+            x_I = solution[:, :(self.m - 1)]
+            x_II = solution[:, (self.m - 1):]
+            g_result = self.g(x_II)
+            # print("Within the class dta, g_result is {} in shape of {}.".format(g_result, g_result.shape))
+            h_result = self.h(x_I)
+            # print("Within the class dta, h_result is {} in shape of {}.".format(h_result, h_result.shape))
+            return (g_result + 1) * h_result
+        else:
+            ps_value = self.pareto_set(sample_size=sample_size)
+            x_I = ps_value[:, :(self.m - 1)]
+            x_II = ps_value[:, (self.m - 1):]
+            g_result = self.g(x_II)
+            h_result = self.h(x_I)
+            return (g_result + 1) * h_result
+
+    def obj(self, solution: torch.tensor):
+        """
+        :param solution: torch.tensor in shape of [size, self.n] in the space of [0, 1]^n
+        :return: normalized results in shape of [size, self.m] in the space of [0, 1]^m
+        """
+        res = self.evaluate(solution)
+        return res
+
+    def showcase_params(self):
+        print("********showcase_params**********")
+        print("Param m is {},\nParam n is {},\n"
+              "Param s is {},\nParam p is {},\n".format(self.m, self.n,
+                                                        self.s, self.p_vec))
+        print("********ending_params**********")
+
+    def ref_and_obj(self):
+        assert 3 <= self.m <= 7
+        ref_vec = ref_points(self.m, DTLZ_pref_list[self.m - 3], if_norm=False)
+        # ref vectors sum to 1
+        obj_vec = generate_norm(ref_vec)
+        # obj vectors norm equals to 1
+        return ref_vec, obj_vec
 
 
 class F1():
@@ -336,8 +776,6 @@ class DTLZ2():
         objs = torch.stack([f1,f2, f3]).T
         
         return objs
-
-
     
 class RE21():
     def __init__(self, n_dim = 4):
