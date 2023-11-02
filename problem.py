@@ -116,7 +116,7 @@ class mDTLZ1:
         self.p = p
         self.k = n + 1 - m
         self.p_ind = p_ind
-        self.current_name = "mDTLZ1"
+        self.current_name = "DTLZ1"
         self.nadir_point = [5, 5, 5]
         if p_ind == 0:
             self.p_vec = None
@@ -244,7 +244,7 @@ class mDTLZ2:
         self.p = p
         self.k = n + 1 - m
         self.p_ind = p_ind
-        self.current_name = "mDTLZ2"
+        self.current_name = "DTLZ2"
         self.nadir_point = [3.5, 3.5, 3.5]
         if p_ind == 0:
             self.p_vec = None
@@ -365,7 +365,7 @@ class mDTLZ3:
         self.k = n + 1 - m
         self.p_ind = p_ind
         self.current_name = "mDTLZ3"
-        self.nadir_point = [3.5, 3.5, 3.5]
+        self.nadir_point = [2, 2, 2]
         if p_ind == 0:
             self.p_vec = None
         else:
