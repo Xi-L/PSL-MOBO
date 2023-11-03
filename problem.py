@@ -156,8 +156,8 @@ class mDTLZ1:
             g_result_1 = torch.pow(x_II - self.p, 2)
             g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p))
         else:
-            g_result_1 = torch.pow(x_II - self.p_vec, 2)
-            g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p_vec))
+            g_result_1 = torch.pow(x_II - self.p_vec.to(x_II.device), 2)
+            g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p_vec.to(x_II.device)))
 
         g_result_inter = torch.sum(g_result_1 - g_result_2, dim=1).unsqueeze(1)
         g_result = g_a * (self.k + g_result_inter)
@@ -172,7 +172,7 @@ class mDTLZ1:
         x_new_I = torch.pow(x_I, self.s)
         sample_prod = torch.cumprod(x_new_I, dim=1)
         sample_minus = 1 - x_new_I
-        sample_ones = torch.ones(sample_size, 1)
+        sample_ones = torch.ones(sample_size, 1).to(x_I.device)
         sample_new_prod = torch.cat((sample_ones, sample_prod), dim=1)
         sample_new_minus = torch.cat((sample_minus, sample_ones), dim=1)
         sample_result = sample_new_prod * sample_new_minus
@@ -279,7 +279,7 @@ class mDTLZ2:
             g_result_1 = torch.pow(x_II - self.p, 2)
             # g_result_2 = torch.cos(20 * torch.pi * (x_II - self.p))
         else:
-            g_result_1 = torch.pow(x_II - self.p_vec, 2)
+            g_result_1 = torch.pow(x_II - self.p_vec.to(x_II.device), 2)
             # g_result_2 = torch.cos(20 * torch.pi * (x_II - self.p_vec))
         g_result_inter = torch.sum(g_result_1, dim=1).unsqueeze(1)
         g_result = g_result_inter
@@ -294,7 +294,7 @@ class mDTLZ2:
         x_new_I = torch.pow(x_I, self.s) * torch.pi / 2
         sample_prod = torch.cumprod(torch.cos(x_new_I), dim=1)
         sample_minus = torch.sin(x_new_I)
-        sample_ones = torch.ones(sample_size, 1)
+        sample_ones = torch.ones(sample_size, 1).to(x_I.device)
         sample_new_prod = torch.cat((sample_ones, sample_prod), dim=1)
         sample_new_minus = torch.cat((sample_minus, sample_ones), dim=1)
         sample_result = sample_new_prod * sample_new_minus
@@ -364,7 +364,7 @@ class mDTLZ3:
         self.p = p
         self.k = n + 1 - m
         self.p_ind = p_ind
-        self.current_name = "mDTLZ3"
+        self.current_name = "DTLZ3"
         self.nadir_point = [2, 2, 2]
         if p_ind == 0:
             self.p_vec = None
@@ -400,8 +400,8 @@ class mDTLZ3:
             g_result_1 = torch.pow(x_II - self.p, 2)
             g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p))
         else:
-            g_result_1 = torch.pow(x_II - self.p_vec, 2)
-            g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p_vec))
+            g_result_1 = torch.pow(x_II - self.p_vec.to(x_II.device), 2)
+            g_result_2 = g_b * torch.cos(g_c * torch.pi * (x_II - self.p_vec.to(x_II.device)))
         g_result_inter = torch.sum(g_result_1 - g_result_2, dim=1).unsqueeze(1)
         g_result = g_a * (self.k + g_result_inter)
         return g_result
@@ -415,7 +415,7 @@ class mDTLZ3:
         x_new_I = torch.pow(x_I, self.s) * torch.pi / 2
         sample_prod = torch.cumprod(torch.cos(x_new_I), dim=1)
         sample_minus = torch.sin(x_new_I)
-        sample_ones = torch.ones(sample_size, 1)
+        sample_ones = torch.ones(sample_size, 1).to(x_I.device)
         sample_new_prod = torch.cat((sample_ones, sample_prod), dim=1)
         sample_new_minus = torch.cat((sample_minus, sample_ones), dim=1)
         sample_result = sample_new_prod * sample_new_minus

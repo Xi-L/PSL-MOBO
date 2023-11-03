@@ -28,17 +28,20 @@ ins_list = ['mdtlz1_4_1', 'mdtlz1_4_2', 'mdtlz1_4_3', 'mdtlz1_4_4',
             'mdtlz2_4_1', 'mdtlz2_4_2', 'mdtlz2_4_3', 'mdtlz2_4_4',
             'mdtlz3_4_1', 'mdtlz3_4_2', 'mdtlz3_4_3', 'mdtlz3_4_4']
 
+# time slot to store rmse results
+rmse_list = [25, 50, 75, 99]
+
 # number of independent runs
-n_run = 2 #20
+n_run = 10 #20
 # number of initialized solutions
-n_init = 10
+n_init = 20
 # number of iterations, and batch size per iteration
-n_iter = 20
+n_iter = 100
 n_sample = 1
 
 # PSL 
 # number of learning steps
-n_steps = 1000 
+n_steps = 500
 # number of sampled preferences per step
 n_pref_update = 10 
 # coefficient of LCB
@@ -48,7 +51,7 @@ n_candidate = 1000
 # number of optional local search
 n_local = 1
 # device
-device = 'cpu'
+device = 'cuda'
 # benchmark or hyper
 if_hyper = False
 # -----------------------------------------------------------------------------
@@ -300,14 +303,15 @@ for range_id, test_id in enumerate(problem_id):
                 igd_records[task_id][i_iter] = igd(front_list[task_id], torch.from_numpy(Y))
                 # print("DEBUG")
                 # update rmse value
-                # w --> x
-                predict_x = psmodel(weight_list[task_id]).to(torch.float64).to(device)
-                # predict_x = predict_x.detach().cpu().numpy()
+                if i_iter in rmse_list:
+                    # w --> x
+                    predict_x = psmodel(weight_list[task_id].to(device)).to(torch.float64).to(device)
+                    # predict_x = predict_x.detach().cpu().numpy()
 
-                # x --> y
-                current_result = problem_list[task_id].evaluate(predict_x)
-                current_rmse, _ = rmse(front_list[task_id], current_result)
-                rmse_records.append(current_rmse)
+                    # x --> y
+                    current_result = problem_list[task_id].evaluate(predict_x)
+                    current_rmse, _ = rmse(front_list[task_id].to(device), current_result)
+                    rmse_records.append(current_rmse)
             
             # check the current HV for evaluated solutions
             # hv = HV(ref_point=np.array(ref_point))
@@ -338,8 +342,8 @@ for range_id, test_id in enumerate(problem_id):
     my_dict['dim'] = n_dim_list[0]
     my_dict['obj'] = n_obj_list[0]
 
-    torch.save(my_dict, "./invSTGP/{}_hp_obj{}_dim{}_{}.pth".
-               format(problem_list.current_name,
+    torch.save(my_dict, "./server/{}_obj{}_dim{}_{}.pth".
+               format(problem_list[0].current_name,
                       my_dict['obj'],
                       my_dict['dim'],
                       "PSL"))
